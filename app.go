@@ -109,7 +109,7 @@ funcLoop:
 			select {
 			case event = <-notifier:
 				fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
-			case <-time.After(time.Second * 5):
+			case <-time.After(time.Second * 1):
 				fmt.Printf("No events")
 			}
 			contract.Unregister(reg)

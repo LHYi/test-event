@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/hyperledger/fabric-sdk-go/pkg/common/providers/fab"
+	"github.com/dlclark/regexp2"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/gateway"
 )
@@ -92,39 +92,146 @@ func main() {
 	contract := network.GetContract(contractName)
 	log.Println("============ successfully got contract", contractName, "============")
 
-funcLoop:
-	for {
-		fmt.Println("-> Continue?: [y/n] ")
-		continueConfirm := catchOneInput()
-		if isYes(continueConfirm) {
-			eventID := "Org1[a-zA-Z]+"
-			reg, notifier, err := contract.RegisterEvent(eventID)
-			if err != nil {
-				fmt.Printf("Failed to register contract event: %s", err)
-				return
-			}
-			defer contract.Unregister(reg)
-			invokeFunc(contract)
-			var event *fab.CCEvent
-			select {
-			case event = <-notifier:
-				fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
-			case <-time.After(time.Second * 1):
-				fmt.Printf("No events")
-			}
-			contract.Unregister(reg)
-		} else if isNo(continueConfirm) {
-			break funcLoop
-		} else {
-			fmt.Println("Wrong input")
+	eventID := "Org1"
+	reg, notifier, err := contract.RegisterEvent(eventID)
+	if err != nil {
+		fmt.Printf("Failed to register contract event: %s", err)
+		return
+	}
+	defer contract.Unregister(reg)
+
+	var P float64 = 0
+	var l1 float64 = 4 * P
+	var m1 float64 = 1.5
+	var iter int = 0
+	var terminate bool = false
+	fmt.Println("-> start? [y/n]")
+	startConfirm := catchOneInput()
+	if isYes(startConfirm) {
+		Lambda := fmt.Sprintf("%v", l1)
+		Mismatch := fmt.Sprintf("%v", m1)
+		_, err = contract.SubmitTransaction("SendUpdate", Lambda, Mismatch)
+		if err != nil {
+			panic(fmt.Errorf("failed to submit transaction: %w", err))
 		}
 	}
+iterLoop:
+	for {
+		select {
+		case event := <-notifier:
+			fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
+			iter += 1
+			l2 := getLambda(string(event.Payload))
+			m2 := getMismatch(string(event.Payload))
+			l1, m1, P, terminate = update(l1, l2, m1, m2, P, iter)
+			Lambda := fmt.Sprintf("%v", l1)
+			Mismatch := fmt.Sprintf("%v", m1)
+			_, err := contract.SubmitTransaction("SendUpdate", Lambda, Mismatch)
+			if err != nil {
+				panic(fmt.Errorf("failed to submit transaction: %w", err))
+			}
+			if terminate {
+				fmt.Printf("Done at iteration %v: P=%v, lambda=%v, mismatch=%v\n", iter, P, l1, m1)
+				break iterLoop
+			}
+		}
+	}
+
+	contract.Unregister(reg)
+
+	// funcLoop:
+	// 	for {
+	// 		fmt.Println("-> Continue?: [y/n] ")
+	// 		continueConfirm := catchOneInput()
+	// 		if isYes(continueConfirm) {
+	// 			eventID := "Org1[a-zA-Z]+"
+	// 			reg, notifier, err := contract.RegisterEvent(eventID)
+	// 			if err != nil {
+	// 				fmt.Printf("Failed to register contract event: %s", err)
+	// 				return
+	// 			}
+	// 			defer contract.Unregister(reg)
+	// 			invokeFunc(contract)
+	// 			var event *fab.CCEvent
+	// 			select {
+	// 			case event = <-notifier:
+	// 				fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
+	// 			case <-time.After(time.Second * 1):
+	// 				fmt.Printf("No events\n")
+	// 			}
+	// 			contract.Unregister(reg)
+	// 		} else if isNo(continueConfirm) {
+	// 			break funcLoop
+	// 		} else {
+	// 			fmt.Println("Wrong input")
+	// 		}
+	// 	}
 
 	fmt.Println("-> Clean up?: [y/n] ")
 	cleanUpConfirm := catchOneInput()
 	if isYes(cleanUpConfirm) {
 		cleanUp()
 	}
+}
+
+func update(l1 float64, l2 float64, m1 float64, m2 float64, P float64, iter int) (float64, float64, float64, bool) {
+	var eta float64 = 1 / float64(iter)
+	if eta < 0.05 {
+		eta = 0.05
+	}
+	ltemp := 0.5*l1 + 0.5*l2 + eta*m1
+	Ptemp := ltemp / 4
+	if Ptemp > 5 {
+		Ptemp = 5
+	} else if Ptemp < 0 {
+		Ptemp = 0
+	}
+	mtemp := 0.5*m1 + 0.5*m2 + P - Ptemp
+
+	var terminate bool
+	if math.Abs(mtemp) < 0.05 && math.Abs(ltemp-l1) < 0.05 {
+		terminate = true
+	} else {
+		terminate = false
+	}
+
+	fmt.Printf("Iteration %v: Lambda=%v, Mismatch=%v, P=%v, Terminate=%v\n", iter, ltemp, mtemp, Ptemp, terminate)
+
+	return ltemp, mtemp, Ptemp, terminate
+}
+
+func getLambda(s string) float64 {
+
+	pattern := "(?<=Lambda=)[0-9.-]+(?=,)"
+
+	reg, err := regexp2.Compile(pattern, 0)
+	if err != nil {
+		fmt.Printf("reg: %v, err: %v\n", reg, err)
+		return 0
+	}
+
+	value, _ := reg.FindStringMatch(s)
+
+	Lambda, _ := strconv.ParseFloat(fmt.Sprintf("%v", value), 64)
+
+	return Lambda
+}
+
+func getMismatch(s string) float64 {
+
+	pattern := "(?<=Mismatch=)[0-9.-]+(?=, end)"
+
+	reg, err := regexp2.Compile(pattern, 0)
+	if err != nil {
+		fmt.Printf("reg: %v, err: %v\n", reg, err)
+		return 0
+	}
+
+	value, _ := reg.FindStringMatch(s)
+
+	Mismatch, _ := strconv.ParseFloat(fmt.Sprintf("%v", value), 64)
+
+	return Mismatch
 }
 
 func populateWallet(wallet *gateway.Wallet, userName string) error {

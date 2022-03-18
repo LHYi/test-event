@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dlclark/regexp2"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
@@ -92,7 +93,10 @@ func main() {
 	contract := network.GetContract(contractName)
 	log.Println("============ successfully got contract", contractName, "============")
 
+	// eventID is a regular expression, which can be used to filter the events with specific event name
 	eventID := "Org1"
+	// reg is the registration that can be used to unregister when event listening is no longer needed
+	// notifier is the channel that the event conmes from
 	reg, notifier, err := contract.RegisterEvent(eventID)
 	if err != nil {
 		fmt.Printf("Failed to register contract event: %s", err)
@@ -108,6 +112,9 @@ func main() {
 	var terminate bool = false
 	fmt.Println("-> start? [y/n]")
 	startConfirm := catchOneInput()
+	// capture the start time of the optimization process
+	start := time.Now()
+	// send the first update of the optimization process
 	if isYes(startConfirm) {
 		Lambda := fmt.Sprintf("%v", l1)
 		Mismatch := fmt.Sprintf("%v", m1)
@@ -116,15 +123,18 @@ func main() {
 			panic(fmt.Errorf("failed to submit transaction: %w", err))
 		}
 	}
+	// select choose from different cases where the information comes, we only have one case here, thus the program will keeps on waiting for the desired event to come
 iterLoop:
 	for {
 		select {
+		//when a new chaicode event, whose name matches the regular expression set in eventID, this case will be selected
 		case event := <-notifier:
 			fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
 			iter += 1
 			l2 := getLambda(string(event.Payload))
 			m2 := getMismatch(string(event.Payload))
 			l1, m1, P, terminate = update(l1, l2, m1, m2, P, iter)
+			// usefull trick to convert float variable to string
 			Lambda := fmt.Sprintf("%v", l1)
 			Mismatch := fmt.Sprintf("%v", m1)
 			_, err := contract.SubmitTransaction("SendUpdate", Lambda, Mismatch)
@@ -132,12 +142,14 @@ iterLoop:
 				panic(fmt.Errorf("failed to submit transaction: %w", err))
 			}
 			if terminate {
-				fmt.Printf("Done at iteration %v: P=%v, lambda=%v, mismatch=%v\n", iter, P, l1, m1)
+				elapsed := time.Since(start)
+				fmt.Printf("Done at iteration %v: P=%v, lambda=%v, mismatch=%v, used %s\n", iter, P, l1, m1, elapsed)
 				break iterLoop
 			}
 		}
 	}
 
+	// unregister since we don't need to listen to events when the optimization is ended'
 	contract.Unregister(reg)
 
 	// funcLoop:
@@ -168,6 +180,8 @@ iterLoop:
 	// 		}
 	// 	}
 
+	// the credentials must be cleaned if you are going to shut down the current network connection
+	// everytime the network is established, new credential files will be generated
 	fmt.Println("-> Clean up?: [y/n] ")
 	cleanUpConfirm := catchOneInput()
 	if isYes(cleanUpConfirm) {
@@ -203,8 +217,10 @@ func update(l1 float64, l2 float64, m1 float64, m2 float64, P float64, iter int)
 
 func getLambda(s string) float64 {
 
+	// looking for string that contains only numbers and decimal points, starting with "Lambda=" and ending with ","
 	pattern := "(?<=Lambda=)[0-9.-]+(?=,)"
 
+	// regexp2 supports more regular expressions than the official regexp
 	reg, err := regexp2.Compile(pattern, 0)
 	if err != nil {
 		fmt.Printf("reg: %v, err: %v\n", reg, err)
@@ -213,6 +229,7 @@ func getLambda(s string) float64 {
 
 	value, _ := reg.FindStringMatch(s)
 
+	// convert string to float64 variable
 	Lambda, _ := strconv.ParseFloat(fmt.Sprintf("%v", value), 64)
 
 	return Lambda

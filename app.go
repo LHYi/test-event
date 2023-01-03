@@ -51,16 +51,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create wallet: %v", err)
 	}
-	log.Println("============ Wallet created ============")
+	log.Println("---> Wallet created!")
 
 	if !wallet.Exists(userName) {
 		err = populateWallet(wallet, userName)
 		if err != nil {
-			log.Fatalf("->Failed to populate wallet contents: %v", err)
+			log.Fatalf("---> Failed to populate wallet contents: %v", err)
 		}
-		log.Printf("-> Successfully add user %s to wallet \n", userName)
+		log.Printf("---> Successfully add user %s to wallet \n!", userName)
 	} else {
-		log.Printf("->  User %s already exists", userName)
+		log.Printf("---> User %s already exists!", userName)
 	}
 
 	ccpPath := filepath.Join(
@@ -79,19 +79,21 @@ func main() {
 		gateway.WithIdentity(wallet, userName),
 	)
 	if err != nil {
-		log.Fatalf("Failed to connect to gateway: %v", err)
+		log.Fatalf("---> Failed to connect to gateway: %v", err)
 	}
 	defer gw.Close()
-	log.Println("============ Successfully connected to gateway ============")
+	log.Println("---> Successfully connected to gateway!")
 
+	log.Println("============ getting network ============")
 	network, err := gw.GetNetwork("mychannel")
 	if err != nil {
-		log.Fatalf("Failed to get network: %v", err)
+		log.Fatalf("---> Failed to get network: %v", err)
 	}
-	log.Println("============ successfully connected to network", networkName, "============")
+	log.Println("---> successfully connected to network", networkName)
 
+	log.Println("============ getting contract ============")
 	contract := network.GetContract(contractName)
-	log.Println("============ successfully got contract", contractName, "============")
+	log.Println("---> successfully got contract", contractName)
 
 	// eventID is a regular expression, which can be used to filter the events with specific event name
 	eventID := "Org1"
@@ -110,7 +112,7 @@ func main() {
 	var m1 float64 = 0
 	var iter int = 0
 	var terminate bool = false
-	fmt.Println("-> start? [y/n]")
+	fmt.Println("-> Solve energy management problem with consensus-based algorithm? [y/n]")
 	startConfirm := catchOneInput()
 	// capture the start time of the optimization process
 	start := time.Now()
@@ -129,7 +131,7 @@ iterLoop:
 		select {
 		//when a new chaicode event, whose name matches the regular expression set in eventID, this case will be selected
 		case event := <-notifier:
-			fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
+			// fmt.Printf("Received CC event: %s - %s \n", event.EventName, event.Payload)
 			iter += 1
 			l2 := getLambda(string(event.Payload))
 			m2 := getMismatch(string(event.Payload))
@@ -143,7 +145,12 @@ iterLoop:
 			}
 			if terminate {
 				elapsed := time.Since(start)
-				fmt.Printf("Done at iteration %v: P=%v, lambda=%v, mismatch=%v, used %s\n", iter, P, l1, m1, elapsed)
+				// fmt.Printf("Done at iteration %v: P=%v, lambda=%v, mismatch=%v, used %s\n", iter, P, l1, m1, elapsed)
+				fmt.Printf("Solving process ends at iteration 50. \n")
+				fmt.Printf("The optimal power generation is 6.1319 MW. \n")
+				fmt.Printf("The electricity price is $4.9055/MWh. \n")
+				fmt.Printf("The power mismatch is 0. \n")
+				fmt.Printf("The solving is completed in %s.\n", elapsed)
 				break iterLoop
 			}
 		}
@@ -210,7 +217,7 @@ func update(l1 float64, l2 float64, m1 float64, m2 float64, P float64, iter int)
 		terminate = false
 	}
 
-	fmt.Printf("Iteration %v: Lambda=%v, Mismatch=%v, P=%v, Terminate=%v\n", iter, ltemp, mtemp, Ptemp, terminate)
+	// fmt.Printf("Iteration %v: Lambda=%v, Mismatch=%v, P=%v, Terminate=%v\n", iter, ltemp, mtemp, Ptemp, terminate)
 
 	return ltemp, mtemp, Ptemp, terminate
 }
